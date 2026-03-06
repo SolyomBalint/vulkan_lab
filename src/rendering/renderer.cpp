@@ -269,7 +269,9 @@ void Renderer::updateDescriptorSets()
 void Renderer::createPipeline(const RendererDependency& dep, CachedRenderingData& cache)
 {
     std::array<std::string, 2> shaders;
-    bool useTextures = dep.layout.infos.contains(VertexDataElem::TextureCoordinate) && theVulkanLayer.descriptorIndexingAvailable;
+    bool useTextures = dep.layout.infos.contains(VertexDataElem::TextureCoordinate)
+        && dep.layout.infos.contains(VertexDataElem::Tangent)
+        && theVulkanLayer.descriptorIndexingAvailable;
 
     if (useTextures) {
         shaders[0] = "forward.vert";
@@ -295,9 +297,10 @@ void Renderer::createPipeline(const RendererDependency& dep, CachedRenderingData
 
         if (useTextures) {
             vertexInputBuilder.
-                addVertexAttribute(2, vk::Format::eR32G32Sfloat, dep.layout.infos.find(VertexDataElem::TextureCoordinate)->second.stride);
+                addVertexAttribute(2, vk::Format::eR32G32Sfloat, dep.layout.infos.find(VertexDataElem::TextureCoordinate)->second.stride)
+                .addVertexAttribute(3, vk::Format::eR32G32B32A32Sfloat, dep.layout.infos.find(VertexDataElem::Tangent)->second.stride);
             cache.bindings[binding++] = VertexDataElem::TextureCoordinate;
-            // LABTODO: also load tangents
+            cache.bindings[binding++] = VertexDataElem::Tangent;
         }
 
         auto vertexInputDesc = vertexInputBuilder.build();

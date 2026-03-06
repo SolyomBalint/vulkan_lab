@@ -8,7 +8,7 @@
 layout(location = 0) in vec3 viewSpacePosition;
 layout(location = 1) in vec3 viewSpaceNormal;
 layout(location = 2) in vec2 texCoord;
-// LABTODO: TBN input
+layout(location = 3) in mat3 TBN;
 
 layout(set = 0, binding = 0) uniform PerFrameUBO {
     PerFrameUniformBufferObject perFrame;
@@ -57,6 +57,6 @@ vec4 shade(inout GLTFMaterial mat) {
 
 void main() {
     GLTFMaterial material = readMaterial(perObject.materialIndex, texCoord);
-    material.normal = normalize(viewSpaceNormal); // LABTODO: use normal from the texture (read by readMaterial)
+    material.normal = normalize(TBN * material.normal);
     outColor = shade(material);
 }
