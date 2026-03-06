@@ -19,7 +19,12 @@ layout(set = 0, binding = 1) uniform PointLightsUBO {
     ivec4 lightCount_pad3;
     PointLight pointLights[MAX_POINTLIGHT_COUNT];
 } plubo;
-// LABTODO: dir lights as uniform
+
+const int MAX_DIRECTIONALLIGHT_COUNT = 10;
+layout(set = 0, binding = 2) uniform DirectionalLightsUBO {
+    ivec4 lightCount_pad3;
+    DirectionalLight directionalLights[MAX_DIRECTIONALLIGHT_COUNT];
+} dlubo;
 
 layout(set = 2, binding = 0) uniform PerObjectUBO {
     PerObjectUniformBufferObject perObject;
@@ -37,7 +42,11 @@ vec4 shade(inout GLTFMaterial mat) {
         finalColor += viewSpaceShading(viewSpacePosition, mat.diffuse, mat.normal, mat.metallic, mat.roughness, lpos - viewSpacePosition, irradiance).xyz;
     }
 
-    // LABTODO: apply dir lights (the above is for point lights! do not copy)
+    for (uint i = 0; i < dlubo.lightCount_pad3.x; ++i) {
+        vec3 ldir = normalize((perFrame.v * vec4(dlubo.directionalLights[i].direction.xyz, 0.0)).xyz);
+        vec3 lpower = dlubo.directionalLights[i].power.rgb * dlubo.directionalLights[i].power.a;
+        finalColor += viewSpaceShading(viewSpacePosition, mat.diffuse, mat.normal, mat.metallic, mat.roughness, -ldir, lpower).xyz;
+    }
 
     finalColor += mat.diffuse * perFrame.ambientLight.rgb * perFrame.ambientLight.a;
 

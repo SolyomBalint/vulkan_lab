@@ -30,6 +30,7 @@ void Renderer::destroy()
     for (auto& it : perObjectBuffers) it.destroy();
     for (auto& it : perFrameBuffers) it.destroy();
     for (auto& it : pointLightBuffers) it.destroy();
+    for (auto& it : directionalLightBuffers) it.destroy();
     rendererCache.destroy();
     free(aUniformData);
     if (!theVulkanLayer.dynamicRenderingAvailable) {
@@ -97,7 +98,23 @@ void Renderer::render(const RenderContext& ctx)
         pointLightBuffers[ctx.frameID].flush(); // ensure visibility
     }
 
-    // LABTODO: update dir light uniforms
+    {
+        DirectionalLightsUBO dlUbo = {};
+        uint32_t idx = 0;
+        for (auto& dl : ctx.pGameScene->directionalLights) {
+            if (idx >= MAX_DIRECTIONALLIGHT_COUNT) break;
+            glm::vec3 dir = dl.direction;
+            if (glm::dot(dir, dir) <= 0.000001f) {
+                dir = glm::vec3{ 0.0f, -1.0f, 0.0f };
+            }
+            dlUbo.directionalLights[idx].direction = glm::vec4{ glm::normalize(dir), 0.0f };
+            dlUbo.directionalLights[idx].power = glm::vec4{ dl.color, dl.power };
+            idx++;
+        }
+        dlUbo.lightCount_pad3.x = idx;
+        memcpy(directionalLightBuffers[ctx.frameID].allocationInfo.pMappedData, &dlUbo, sizeof(dlUbo));
+        directionalLightBuffers[ctx.frameID].flush();
+    }
 
     // per object uniforms
     {
@@ -219,7 +236,8 @@ void Renderer::createPipelineLayout()
             vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment)
         .addBinding(1, vk::DescriptorType::eUniformBuffer, // pointLightUniformData
             vk::ShaderStageFlagBits::eFragment)
-    // LABTODO: dir light descriptor binding
+        .addBinding(2, vk::DescriptorType::eUniformBuffer, // directionalLightUniformData
+            vk::ShaderStageFlagBits::eFragment)
     // LABTODO: post process render target (as read only texture)
         .createLayout();
 
@@ -244,8 +262,8 @@ void Renderer::updateDescriptorSets()
 
     perFrameDscSetBuilder.update(perFrameDescriptorSets)
         .writeBuffer(0, perFrameBuffers)
-        .writeBuffer(1, pointLightBuffers);
-    // LABTODO: write dir light buffer into descriptor
+        .writeBuffer(1, pointLightBuffers)
+        .writeBuffer(2, directionalLightBuffers);
 }
 
 void Renderer::createPipeline(const RendererDependency& dep, CachedRenderingData& cache)
@@ -362,6 +380,7 @@ void Renderer::createResources()
             vma::AllocationCreateFlagBits::eHostAccessSequentialWriteBit | vma::AllocationCreateFlagBits::eCreateMappedBit);
         pointLightBuffers[i] = theVulkanLayer.createBuffer(sizeof(PointLightsUBO), vk::BufferUsageFlagBits::eUniformBuffer,
             vma::AllocationCreateFlagBits::eHostAccessSequentialWriteBit | vma::AllocationCreateFlagBits::eCreateMappedBit);
-        //LABTODO: create dir light buffers
+        directionalLightBuffers[i] = theVulkanLayer.createBuffer(sizeof(DirectionalLightsUBO), vk::BufferUsageFlagBits::eUniformBuffer,
+            vma::AllocationCreateFlagBits::eHostAccessSequentialWriteBit | vma::AllocationCreateFlagBits::eCreateMappedBit);
     }
 }

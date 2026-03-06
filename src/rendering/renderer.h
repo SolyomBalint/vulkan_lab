@@ -52,7 +52,15 @@ private:
         PerPointLightUniformData pointLights[MAX_POINTLIGHT_COUNT];
     };
 
-    // LABTODO: dir light data types
+    struct alignas(16) PerDirectionalLightUniformData {
+        glm::vec4 direction, power;
+    };
+
+    static const size_t MAX_DIRECTIONALLIGHT_COUNT = 10;
+    struct DirectionalLightsUBO {
+        glm::uvec4 lightCount_pad3;
+        PerDirectionalLightUniformData directionalLights[MAX_DIRECTIONALLIGHT_COUNT];
+    };
 
     void createPipelineLayout();
     void createPipeline(const RendererDependency& dep, CachedRenderingData& comp);
@@ -66,7 +74,7 @@ private:
     VulkanImage depthImage;
     QueryInfo<2> query;
     std::array<VulkanBuffer, MAX_FRAMES_IN_FLIGHT> pointLightBuffers, perFrameBuffers, perObjectBuffers;
-    // LABTODO: dir light buffers
+    std::array<VulkanBuffer, MAX_FRAMES_IN_FLIGHT> directionalLightBuffers;
     PerObjectUniformData* aUniformData;
     vk::DeviceSize dynamicAlignment;
     DescriptorPoolBuilder descriptorPoolBuilder;

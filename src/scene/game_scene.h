@@ -8,13 +8,13 @@ class GameScene {
 public:
     std::vector<GameObject> gameObjects;
     std::vector<PointLight> pointLights;
-    // LABTODO: dirlights
+    std::vector<DirectionalLight> directionalLights;
     AmbientLight ambientLight;
 
     void updateGui();
 
 private:
-    size_t selectedObjectIndex = 0, selectedPointLightIndex = 0;
+    size_t selectedObjectIndex = 0, selectedPointLightIndex = 0, selectedDirectionalLightIndex = 0;
 };
 
 #endif//VULKAN_INTRO_GAME_SCENE_H
