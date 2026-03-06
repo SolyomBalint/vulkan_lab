@@ -1,0 +1,1 @@
+# GPU programozás és párhuzamos rendszerek labor
