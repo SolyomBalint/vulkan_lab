@@ -63,15 +63,18 @@ private:
     };
 
     void createPipelineLayout();
+    void createPostProcessPipeline();
     void createPipeline(const RendererDependency& dep, CachedRenderingData& comp);
     void createResources();
     void createImages();
     void updateDescriptorSets();
 
 private:
-    // LABTODO: post process pipeline
+    VulkanPipeline postProcessPipeline;
     vk::PipelineLayout pipelineLayout;
     VulkanImage depthImage;
+    VulkanImage postProcessImage;
+    vk::Sampler postProcessSampler = nullptr;
     QueryInfo<2> query;
     std::array<VulkanBuffer, MAX_FRAMES_IN_FLIGHT> pointLightBuffers, perFrameBuffers, perObjectBuffers;
     std::array<VulkanBuffer, MAX_FRAMES_IN_FLIGHT> directionalLightBuffers;

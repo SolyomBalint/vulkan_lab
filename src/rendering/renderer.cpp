@@ -17,7 +17,9 @@ void Renderer::initialize()
     query.create();
     createResources();
     createPipelineLayout();
-    // LABTODO: create post process pipeline
+    if (theVulkanLayer.dynamicRenderingAvailable) {
+        createPostProcessPipeline();
+    }
 }
 
 void Renderer::destroy()
@@ -31,12 +33,14 @@ void Renderer::destroy()
     for (auto& it : perFrameBuffers) it.destroy();
     for (auto& it : pointLightBuffers) it.destroy();
     for (auto& it : directionalLightBuffers) it.destroy();
+    if (postProcessPipeline.pipeline) {
+        postProcessPipeline.destroy();
+    }
     rendererCache.destroy();
     free(aUniformData);
     if (!theVulkanLayer.dynamicRenderingAvailable) {
         theVulkanLayer.device.destroy(renderPass);
     }
-    // LABTODO: destroy objects
 }
 
 void Renderer::initializeSwapChainDependentComponents()
@@ -46,6 +50,7 @@ void Renderer::initializeSwapChainDependentComponents()
     if (!theVulkanLayer.dynamicRenderingAvailable) {
         if (firstSwapChainCreate) {
             createRenderPass();
+            createPostProcessPipeline();
             firstSwapChainCreate = false;
         }
         createFramebuffers();
@@ -55,12 +60,16 @@ void Renderer::initializeSwapChainDependentComponents()
 void Renderer::destroySwapChainDependentComponents()
 {
     depthImage.destroy();
+    postProcessImage.destroy();
+    if (postProcessSampler) {
+        theVulkanLayer.device.destroy(postProcessSampler);
+        postProcessSampler = nullptr;
+    }
     if (!theVulkanLayer.dynamicRenderingAvailable) {
         for (auto& it : framebuffer) {
             theVulkanLayer.device.destroy(it);
         }
     }
-    // LABTODO: destroy objects
 }
 
 void Renderer::render(const RenderContext& ctx)
@@ -143,7 +152,7 @@ void Renderer::render(const RenderContext& ctx)
 
     // prepare render pass
     vk::RenderingAttachmentInfo colorInfo = { // color attachment (render target)
-        .imageView = wm.swapChainImageViews[ctx.imageID], // LABTODO: post process render target
+        .imageView = vl.dynamicRenderingAvailable ? postProcessImage.view : wm.swapChainImageViews[ctx.imageID],
         .imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
         .loadOp = vk::AttachmentLoadOp::eClear,
         .storeOp = vk::AttachmentStoreOp::eStore,
@@ -215,11 +224,73 @@ void Renderer::render(const RenderContext& ctx)
         ctx.cmd.endRenderPass();
     }    
 
-    // LABTODO: synchronization between the passes (and layout transition!)
+    if (vl.dynamicRenderingAvailable) {
+        vk::ImageMemoryBarrier2 toShaderRead = {};
+        toShaderRead
+            .setSrcStageMask(vk::PipelineStageFlagBits2::eColorAttachmentOutput)
+            .setSrcAccessMask(vk::AccessFlagBits2::eColorAttachmentWrite)
+            .setDstStageMask(vk::PipelineStageFlagBits2::eFragmentShader)
+            .setDstAccessMask(vk::AccessFlagBits2::eShaderSampledRead)
+            .setOldLayout(vk::ImageLayout::eColorAttachmentOptimal)
+            .setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
+            .setImage(postProcessImage.image)
+            .setSubresourceRange(vk::ImageSubresourceRange{
+                vk::ImageAspectFlagBits::eColor,
+                0,
+                1,
+                0,
+                1
+            });
+        vk::DependencyInfo depToShaderRead = {};
+        depToShaderRead.setImageMemoryBarriers(toShaderRead);
+        ctx.cmd.pipelineBarrier2(depToShaderRead);
 
-    // LABTODO: new post process render pass
+        vk::RenderingAttachmentInfo postProcessColorInfo = {
+            .imageView = wm.swapChainImageViews[ctx.imageID],
+            .imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
+            .loadOp = vk::AttachmentLoadOp::eClear,
+            .storeOp = vk::AttachmentStoreOp::eStore,
+            .clearValue = vk::ClearColorValue{ 0.0f, 0.0f, 0.0f, 1.0f }
+        };
 
-    // LABTODO: layout transition back to ColorAttachment
+        vk::RenderingInfo postProcessRenderingInfo = {
+            .renderArea = {{0, 0}, wm.swapChainExtent},
+            .layerCount = 1,
+            .colorAttachmentCount = 1,
+            .pColorAttachments = &postProcessColorInfo,
+        };
+
+        ctx.cmd.beginRendering(postProcessRenderingInfo);
+        ctx.cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, postProcessPipeline.pipeline);
+        ctx.cmd.setViewport(0, vp);
+        ctx.cmd.setScissor(0, postProcessRenderingInfo.renderArea);
+        ctx.cmd.bindDescriptorSets(
+            vk::PipelineBindPoint::eGraphics, pipelineLayout,
+            0, perFrameDescriptorSets[ctx.frameID], nullptr
+        );
+        ctx.cmd.draw(3, 1, 0, 0);
+        ctx.cmd.endRendering();
+
+        vk::ImageMemoryBarrier2 backToColorAttachment = {};
+        backToColorAttachment
+            .setSrcStageMask(vk::PipelineStageFlagBits2::eFragmentShader)
+            .setSrcAccessMask(vk::AccessFlagBits2::eShaderSampledRead)
+            .setDstStageMask(vk::PipelineStageFlagBits2::eColorAttachmentOutput)
+            .setDstAccessMask(vk::AccessFlagBits2::eColorAttachmentWrite)
+            .setOldLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
+            .setNewLayout(vk::ImageLayout::eColorAttachmentOptimal)
+            .setImage(postProcessImage.image)
+            .setSubresourceRange(vk::ImageSubresourceRange{
+                vk::ImageAspectFlagBits::eColor,
+                0,
+                1,
+                0,
+                1
+            });
+        vk::DependencyInfo depBackToColorAttachment = {};
+        depBackToColorAttachment.setImageMemoryBarriers(backToColorAttachment);
+        ctx.cmd.pipelineBarrier2(depBackToColorAttachment);
+    }
 
     query.write(ctx.cmd, vk::PipelineStageFlagBits::eBottomOfPipe);
 
@@ -238,7 +309,8 @@ void Renderer::createPipelineLayout()
             vk::ShaderStageFlagBits::eFragment)
         .addBinding(2, vk::DescriptorType::eUniformBuffer, // directionalLightUniformData
             vk::ShaderStageFlagBits::eFragment)
-    // LABTODO: post process render target (as read only texture)
+        .addBinding(3, vk::DescriptorType::eCombinedImageSampler, // post process render target
+            vk::ShaderStageFlagBits::eFragment)
         .createLayout();
 
     perObjectDscSetBuilder.setMaximumSetCount(MAX_FRAMES_IN_FLIGHT)
@@ -264,6 +336,58 @@ void Renderer::updateDescriptorSets()
         .writeBuffer(0, perFrameBuffers)
         .writeBuffer(1, pointLightBuffers)
         .writeBuffer(2, directionalLightBuffers);
+
+    std::array<vk::DescriptorImageInfo, MAX_FRAMES_IN_FLIGHT> postProcessInfos;
+    std::array<vk::WriteDescriptorSet, MAX_FRAMES_IN_FLIGHT> postProcessWrites;
+    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        postProcessInfos[i] = {
+            .sampler = postProcessSampler,
+            .imageView = postProcessImage.view,
+            .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal
+        };
+        postProcessWrites[i] = {
+            .dstSet = perFrameDescriptorSets[i],
+            .dstBinding = 3,
+            .dstArrayElement = 0,
+            .descriptorCount = 1,
+            .descriptorType = vk::DescriptorType::eCombinedImageSampler,
+            .pImageInfo = &postProcessInfos[i]
+        };
+    }
+    theVulkanLayer.device.updateDescriptorSets(postProcessWrites, nullptr);
+}
+
+void Renderer::createPostProcessPipeline()
+{
+    if (theVulkanLayer.dynamicRenderingAvailable) {
+        theShaderManager.addAndExecuteShaderDependency(postProcessPipeline, { "post_process.frag" },
+            [this](auto shaders) {
+                auto& wm = theWindowManager;
+
+                vk::PipelineRenderingCreateInfo renderingInfo = {
+                    .colorAttachmentCount = 1,
+                    .pColorAttachmentFormats = &wm.swapChainImageFormat
+                };
+
+                return theVulkanLayer.name(thePipelineBuildHelpers.createFullscreenPipeline(
+                    pipelineLayout,
+                    renderingInfo,
+                    shaders[0]
+                ), "Renderer_PostProcessPipeline");
+            }
+        );
+    } else {
+        theShaderManager.addAndExecuteShaderDependency(postProcessPipeline, { "post_process.frag" },
+            [this](auto shaders) {
+                return theVulkanLayer.name(thePipelineBuildHelpers.createFullscreenPipeline(
+                    pipelineLayout,
+                    renderPass,
+                    0,
+                    shaders[0]
+                ), "Renderer_PostProcessPipeline");
+            }
+        );
+    }
 }
 
 void Renderer::createPipeline(const RendererDependency& dep, CachedRenderingData& cache)
@@ -365,7 +489,35 @@ void Renderer::createImages()
         vk::ImageUsageFlagBits::eDepthStencilAttachment
     ), "Renderer_DepthImage");
 
-    // LABTODO: create intermediate texture for post processing and a sampler
+    postProcessImage = theVulkanLayer.name(theVulkanLayer.createImage(
+        theWindowManager.swapChainExtent.width,
+        theWindowManager.swapChainExtent.height,
+        1,
+        vk::SampleCountFlagBits::e1,
+        theWindowManager.swapChainImageFormat,
+        vk::ImageLayout::eColorAttachmentOptimal,
+        vk::ImageAspectFlagBits::eColor,
+        vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled
+    ), "Renderer_PostProcessImage");
+
+    vk::SamplerCreateInfo samplerInfo = {
+        .magFilter = vk::Filter::eLinear,
+        .minFilter = vk::Filter::eLinear,
+        .mipmapMode = vk::SamplerMipmapMode::eLinear,
+        .addressModeU = vk::SamplerAddressMode::eClampToEdge,
+        .addressModeV = vk::SamplerAddressMode::eClampToEdge,
+        .addressModeW = vk::SamplerAddressMode::eClampToEdge,
+        .mipLodBias = 0.0f,
+        .anisotropyEnable = VK_FALSE,
+        .maxAnisotropy = 1.0f,
+        .compareEnable = VK_FALSE,
+        .compareOp = vk::CompareOp::eAlways,
+        .minLod = 0.0f,
+        .maxLod = 0.0f,
+        .borderColor = vk::BorderColor::eFloatOpaqueBlack,
+        .unnormalizedCoordinates = VK_FALSE
+    };
+    postProcessSampler = theVulkanLayer.name(theVulkanLayer.device.createSampler(samplerInfo), "Renderer_PostProcessSampler");
 }
 
 void Renderer::createResources()
