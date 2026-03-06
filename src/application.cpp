@@ -156,7 +156,7 @@ void Application::initScene()
     camera.lookAt(glm::vec3(0, 0, 0));
 
     gameScene.pointLights.push_back(PointLight{ glm::vec3{1, 1, 1}, glm::vec3(1, 1, 1), 20.0f, "pointlight1" });
-    gameScene.dirLights.push_back(DirectionalLight{ glm::normalize(glm::vec3{-1, -1, -0.5f}), glm::vec3(1, 0.95f, 0.8f), 3.0f, "sun" });
+    // LABTODO: add dir lights
     gameScene.gameObjects.push_back(GameObject{ Transform{}, theAssetManager.getCompositeMesh("BrainStem.glb"), "object1" });
     gameScene.gameObjects.push_back(GameObject{ Transform{}, theAssetManager.getCompositeMesh("sponza/Sponza.glb"), "sponza" });
     gameScene.ambientLight.color = glm::vec3(1.0);

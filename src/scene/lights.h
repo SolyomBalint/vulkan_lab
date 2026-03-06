@@ -12,10 +12,6 @@ struct AmbientLight {
 	float power;
 };
 
-struct DirectionalLight {
-	glm::vec3 direction, color;
-	float power;
-	std::string name;
-};
+// lABTODO: dir light type
 
 #endif//VULKAN_INTRO_LIGHTS_H

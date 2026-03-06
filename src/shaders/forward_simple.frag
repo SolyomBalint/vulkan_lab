@@ -18,12 +18,6 @@ layout(set = 0, binding = 1) uniform PointLightsUBO {
     PointLight pointLights[MAX_POINTLIGHT_COUNT];
 } plubo;
 
-const int MAX_DIRLIGHT_COUNT = 10;
-layout(set = 0, binding = 2) uniform DirLightsUBO {
-    ivec4 dirLightCount_pad3;
-    DirLight dirLights[MAX_DIRLIGHT_COUNT];
-} dlubo;
-
 layout(set = 2, binding = 0) uniform PerObjectUBO {
     PerObjectUniformBufferObject perObject;
 };
@@ -38,13 +32,6 @@ vec4 shade(inout GLTFMaterial mat) {
         vec3 lpower = plubo.pointLights[i].power.xyz * plubo.pointLights[i].power.w;
         vec3 irradiance = calculateIrradiance(viewSpacePosition, lpos, lpower);
         finalColor += viewSpaceShading(viewSpacePosition, mat.diffuse, mat.normal, mat.metallic, mat.roughness, lpos - viewSpacePosition, irradiance).xyz;
-    }
-
-    for (uint i = 0; i < dlubo.dirLightCount_pad3.x; ++i) {
-        vec3 ldir = normalize((perFrame.v * vec4(dlubo.dirLights[i].dir.xyz, 0)).xyz);
-        vec3 lpower = dlubo.dirLights[i].power.rgb * dlubo.dirLights[i].power.a;
-        vec3 irradiance = lpower;
-        finalColor += viewSpaceShading(viewSpacePosition, mat.diffuse, mat.normal, mat.metallic, mat.roughness, -ldir, irradiance).xyz;
     }
 
     finalColor += mat.diffuse * perFrame.ambientLight.rgb * perFrame.ambientLight.a;

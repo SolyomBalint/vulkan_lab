@@ -37,18 +37,7 @@ void GameScene::updateGui()
 		ImGui::PopID();
 	}
 
-	ImGui::Separator();
-
-	ImGui::Text("Directional lights");
-	for (int i = 0; auto& it : dirLights) {
-		ImGui::PushID(1000 + i);
-		ImGui::Text("%s", it.name.c_str());
-		ImGui::DragFloat3("Direction", &it.direction.x, 0.01f, -1.0f, 1.0f);
-		ImGui::DragFloat3("Color", &it.color.x, 0.01f, 0.0f, 10.0f);
-		ImGui::DragFloat("Power", &it.power, 0.1f, 0.0f, 100.0f);
-		i++;
-		ImGui::PopID();
-	}
+	// LABTODO: dir lights ui
 
 	ImGui::End();
 }

@@ -57,13 +57,7 @@ GLTFMaterial readMaterial(int materialIndex, vec2 texCoord)
     ret.metallic *= mats.entries[materialIndex + 7];
     ret.roughness *= mats.entries[materialIndex + 8];
 
-    float normalTextureID = mats.entries[materialIndex + 1];
-    if (normalTextureID >= 0.0) {
-        vec3 nSample = texture(textures[nonuniformEXT(int(normalTextureID))], texCoord).rgb;
-        ret.normal = nSample * 2.0 - 1.0;
-    } else {
-        ret.normal = vec3(0);
-    }
+    // LABTODO: read normal texture
 
     return ret;
 }

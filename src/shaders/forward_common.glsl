@@ -17,8 +17,6 @@ struct PointLight {
     vec4 pos, power;
 };
 
-struct DirLight {
-    vec4 dir, power;
-};
+// LABTODO: DirLight data structure
 
 #endif//FORWARD_COMMON_GLSL

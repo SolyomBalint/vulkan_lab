@@ -8,7 +8,7 @@
 layout(location = 0) in vec3 viewSpacePosition;
 layout(location = 1) in vec3 viewSpaceNormal;
 layout(location = 2) in vec2 texCoord;
-layout(location = 3) in mat3 TBN;
+// LABTODO: TBN input
 
 layout(set = 0, binding = 0) uniform PerFrameUBO {
     PerFrameUniformBufferObject perFrame;
@@ -19,12 +19,7 @@ layout(set = 0, binding = 1) uniform PointLightsUBO {
     ivec4 lightCount_pad3;
     PointLight pointLights[MAX_POINTLIGHT_COUNT];
 } plubo;
-
-const int MAX_DIRLIGHT_COUNT = 10;
-layout(set = 0, binding = 2) uniform DirLightsUBO {
-    ivec4 dirLightCount_pad3;
-    DirLight dirLights[MAX_DIRLIGHT_COUNT];
-} dlubo;
+// LABTODO: dir lights as uniform
 
 layout(set = 2, binding = 0) uniform PerObjectUBO {
     PerObjectUniformBufferObject perObject;
@@ -42,12 +37,7 @@ vec4 shade(inout GLTFMaterial mat) {
         finalColor += viewSpaceShading(viewSpacePosition, mat.diffuse, mat.normal, mat.metallic, mat.roughness, lpos - viewSpacePosition, irradiance).xyz;
     }
 
-    for (uint i = 0; i < dlubo.dirLightCount_pad3.x; ++i) {
-        vec3 ldir = normalize((perFrame.v * vec4(dlubo.dirLights[i].dir.xyz, 0)).xyz);
-        vec3 lpower = dlubo.dirLights[i].power.rgb * dlubo.dirLights[i].power.a;
-        vec3 irradiance = lpower;
-        finalColor += viewSpaceShading(viewSpacePosition, mat.diffuse, mat.normal, mat.metallic, mat.roughness, -ldir, irradiance).xyz;
-    }
+    // LABTODO: apply dir lights (the above is for point lights! do not copy)
 
     finalColor += mat.diffuse * perFrame.ambientLight.rgb * perFrame.ambientLight.a;
 
@@ -58,12 +48,6 @@ vec4 shade(inout GLTFMaterial mat) {
 
 void main() {
     GLTFMaterial material = readMaterial(perObject.materialIndex, texCoord);
-
-    if (material.normal != vec3(0)) {
-        material.normal = normalize(TBN * material.normal);
-    } else {
-        material.normal = normalize(viewSpaceNormal);
-    }
-
+    material.normal = normalize(viewSpaceNormal); // LABTODO: use normal from the texture (read by readMaterial)
     outColor = shade(material);
 }

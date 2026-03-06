@@ -52,15 +52,7 @@ private:
         PerPointLightUniformData pointLights[MAX_POINTLIGHT_COUNT];
     };
 
-    struct alignas(16) PerDirLightUniformData {
-        glm::vec4 direction, power;
-    };
-
-    static const size_t MAX_DIRLIGHT_COUNT = 10;
-    struct DirLightsUBO {
-        glm::uvec4 lightCount_pad3;
-        PerDirLightUniformData dirLights[MAX_DIRLIGHT_COUNT];
-    };
+    // LABTODO: dir light data types
 
     void createPipelineLayout();
     void createPipeline(const RendererDependency& dep, CachedRenderingData& comp);
@@ -69,16 +61,12 @@ private:
     void updateDescriptorSets();
 
 private:
-    VulkanPipeline postProcessPipeline;
-    vk::PipelineLayout postProcessLayout;
-    VulkanImage intermediateImage;
-    vk::Sampler intermediateSampler;
-
+    // LABTODO: post process pipeline
     vk::PipelineLayout pipelineLayout;
     VulkanImage depthImage;
-    QueryInfo<4> query;
+    QueryInfo<2> query;
     std::array<VulkanBuffer, MAX_FRAMES_IN_FLIGHT> pointLightBuffers, perFrameBuffers, perObjectBuffers;
-    std::array<VulkanBuffer, MAX_FRAMES_IN_FLIGHT> dirLightBuffers;
+    // LABTODO: dir light buffers
     PerObjectUniformData* aUniformData;
     vk::DeviceSize dynamicAlignment;
     DescriptorPoolBuilder descriptorPoolBuilder;

@@ -17,43 +17,25 @@ void Renderer::initialize()
     query.create();
     createResources();
     createPipelineLayout();
-
-    // Post process pipeline
-    theShaderManager.addAndExecuteShaderDependency(postProcessPipeline, { "post_process.frag" },
-        [this](auto shaders) {
-        auto& vl = theVulkanLayer;
-        auto& wm = theWindowManager;
-        if (vl.dynamicRenderingAvailable) {
-            vk::PipelineRenderingCreateInfo renderingInfo = {
-                .colorAttachmentCount = 1,
-                .pColorAttachmentFormats = &wm.swapChainImageFormat
-            };
-            return theVulkanLayer.name(thePipelineBuildHelpers.createFullscreenPipeline(postProcessLayout, renderingInfo, shaders[0]), "PostProcess_Pipeline");
-        } else {
-            return theVulkanLayer.name(thePipelineBuildHelpers.createFullscreenPipeline(postProcessLayout, renderPass, 0, shaders[0]), "PostProcess_Pipeline");
-        }
-    });
+    // LABTODO: create post process pipeline
 }
 
 void Renderer::destroy()
 {
     query.destroy();
     theVulkanLayer.device.destroy(pipelineLayout);
-    theVulkanLayer.device.destroy(postProcessLayout);
     descriptorPoolBuilder.destroy();
     perFrameDscSetBuilder.destroyLayout();
     perObjectDscSetBuilder.destroyLayout();
     for (auto& it : perObjectBuffers) it.destroy();
     for (auto& it : perFrameBuffers) it.destroy();
     for (auto& it : pointLightBuffers) it.destroy();
-    for (auto& it : dirLightBuffers) it.destroy();
     rendererCache.destroy();
     free(aUniformData);
     if (!theVulkanLayer.dynamicRenderingAvailable) {
         theVulkanLayer.device.destroy(renderPass);
     }
-    theVulkanLayer.device.destroy(intermediateSampler);
-    postProcessPipeline.destroy();
+    // LABTODO: destroy objects
 }
 
 void Renderer::initializeSwapChainDependentComponents()
@@ -72,12 +54,12 @@ void Renderer::initializeSwapChainDependentComponents()
 void Renderer::destroySwapChainDependentComponents()
 {
     depthImage.destroy();
-    intermediateImage.destroy();
     if (!theVulkanLayer.dynamicRenderingAvailable) {
         for (auto& it : framebuffer) {
             theVulkanLayer.device.destroy(it);
         }
     }
+    // LABTODO: destroy objects
 }
 
 void Renderer::render(const RenderContext& ctx)
@@ -87,11 +69,7 @@ void Renderer::render(const RenderContext& ctx)
 
     // timestamp query
     query.query();
-    double sceneTime = (query.results[1] - query.results[0]) * vl.timestampPeriod / 1e6;
-    double postTime = (query.results[3] - query.results[2]) * vl.timestampPeriod / 1e6;
-    theGUIManager.addStatistic("Renderer", std::make_tuple("Scene: ", sceneTime, " ms"));
-    theGUIManager.addStatistic("Renderer", std::make_tuple("Post: ", postTime, " ms"));
-    theGUIManager.addStatistic("Renderer", std::make_tuple("Total: ", sceneTime + postTime, " ms"));
+    theGUIManager.addStatistic("Renderer", std::make_tuple("Frame time: ", (query.results[1] - query.results[0]) * vl.timestampPeriod / 1e6, " ms"));
     
     auto vp = vk::Viewport{ 0, 0, (float)wm.swapChainExtent.width, (float)wm.swapChainExtent.height, 0.0, 1.0 };
     auto projectionMx = ctx.cam->P(vp.width / vp.height);
@@ -99,39 +77,27 @@ void Renderer::render(const RenderContext& ctx)
     // Update uniforms
 
     // per frame uniforms
-    PerFrameUniformData fud = {};
+    PerFrameUniformData fud = {}; // prepare uniform data on CPU
     fud.v = ctx.cam->V();
     fud.ambientLight = glm::vec4{ ctx.pGameScene->ambientLight.color, ctx.pGameScene->ambientLight.power };
-    memcpy(perFrameBuffers[ctx.frameID].allocationInfo.pMappedData, &fud, sizeof(PerFrameUniformData));
-    perFrameBuffers[ctx.frameID].flush();
+    memcpy(perFrameBuffers[ctx.frameID].allocationInfo.pMappedData, &fud, sizeof(PerFrameUniformData)); // upload to GPU through mapped pointer
+    perFrameBuffers[ctx.frameID].flush(); // ensure visibility
 
     // point lights
     {
-        PointLightsUBO plUbo = {};
+        PointLightsUBO plUbo = {}; // this will be uploaded to the uniform buffer
         uint32_t idx = 0;
-        for (auto& pl : ctx.pGameScene->pointLights) {
+        for (auto& pl : ctx.pGameScene->pointLights) { // iterate over all pointlights and set values
             plUbo.pointLights[idx].position = glm::vec4{ pl.position, 1.0 };
             plUbo.pointLights[idx].power = glm::vec4{ pl.color, pl.power };
             idx++;
         }
-        plUbo.lightCount_pad3.x = idx;
-        memcpy(pointLightBuffers[ctx.frameID].allocationInfo.pMappedData, &plUbo, sizeof(plUbo));
-        pointLightBuffers[ctx.frameID].flush();
+        plUbo.lightCount_pad3.x = idx; // number of lights
+        memcpy(pointLightBuffers[ctx.frameID].allocationInfo.pMappedData, &plUbo, sizeof(plUbo)); // copy
+        pointLightBuffers[ctx.frameID].flush(); // ensure visibility
     }
 
-    // directional lights
-    {
-        DirLightsUBO dlUbo = {};
-        uint32_t idx = 0;
-        for (auto& dl : ctx.pGameScene->dirLights) {
-            dlUbo.dirLights[idx].direction = glm::vec4{ dl.direction, 0.0 };
-            dlUbo.dirLights[idx].power = glm::vec4{ dl.color, dl.power };
-            idx++;
-        }
-        dlUbo.lightCount_pad3.x = idx;
-        memcpy(dirLightBuffers[ctx.frameID].allocationInfo.pMappedData, &dlUbo, sizeof(dlUbo));
-        dirLightBuffers[ctx.frameID].flush();
-    }
+    // LABTODO: update dir light uniforms
 
     // per object uniforms
     {
@@ -155,19 +121,19 @@ void Renderer::render(const RenderContext& ctx)
         }
     }
 
-    query.beginFrame(ctx.cmd);
-    query.write(ctx.cmd, vk::PipelineStageFlagBits::eTopOfPipe);
+    query.beginFrame(ctx.cmd); // reset query
+    query.write(ctx.cmd, vk::PipelineStageFlagBits::eTopOfPipe); // write timestamp
 
-    // Scene render pass: render to intermediate image
-    vk::RenderingAttachmentInfo colorInfo = {
-        .imageView = intermediateImage.view,
+    // prepare render pass
+    vk::RenderingAttachmentInfo colorInfo = { // color attachment (render target)
+        .imageView = wm.swapChainImageViews[ctx.imageID], // LABTODO: post process render target
         .imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
         .loadOp = vk::AttachmentLoadOp::eClear,
         .storeOp = vk::AttachmentStoreOp::eStore,
         .clearValue = vk::ClearColorValue{ 0.0f, 0.0f, 0.0f, 1.0f }
     };
 
-    vk::RenderingAttachmentInfo depthInfo = {
+    vk::RenderingAttachmentInfo depthInfo = { // depth attachment
         .imageView = depthImage.view,
         .imageLayout = vk::ImageLayout::eDepthStencilAttachmentOptimal,
         .loadOp = vk::AttachmentLoadOp::eClear,
@@ -183,6 +149,7 @@ void Renderer::render(const RenderContext& ctx)
         .pDepthAttachment = &depthInfo
     };
 
+    // start render pass
     if (vl.dynamicRenderingAvailable) {
         ctx.cmd.beginRendering(renderingInfo);
     } else {
@@ -231,83 +198,14 @@ void Renderer::render(const RenderContext& ctx)
         ctx.cmd.endRenderPass();
     }    
 
-    query.write(ctx.cmd, vk::PipelineStageFlagBits::eBottomOfPipe);
+    // LABTODO: synchronization between the passes (and layout transition!)
 
-    // Pipeline barrier: intermediate image from ColorAttachment -> ShaderReadOnly
-    vk::ImageMemoryBarrier2 barrier = {
-        .srcStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-        .srcAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite,
-        .dstStageMask = vk::PipelineStageFlagBits2::eFragmentShader,
-        .dstAccessMask = vk::AccessFlagBits2::eShaderSampledRead,
-        .oldLayout = vk::ImageLayout::eColorAttachmentOptimal,
-        .newLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
-        .image = intermediateImage.image,
-        .subresourceRange = { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 }
-    };
-    vk::DependencyInfo depInfo = {
-        .imageMemoryBarrierCount = 1,
-        .pImageMemoryBarriers = &barrier
-    };
-    ctx.cmd.pipelineBarrier2(depInfo);
+    // LABTODO: new post process render pass
 
-    // Post process render pass: render fullscreen quad to swapchain
-    query.write(ctx.cmd, vk::PipelineStageFlagBits::eTopOfPipe);
-
-    vk::RenderingAttachmentInfo ppColorInfo = {
-        .imageView = wm.swapChainImageViews[ctx.imageID],
-        .imageLayout = vk::ImageLayout::eColorAttachmentOptimal,
-        .loadOp = vk::AttachmentLoadOp::eClear,
-        .storeOp = vk::AttachmentStoreOp::eStore,
-        .clearValue = vk::ClearColorValue{ 0.0f, 0.0f, 0.0f, 1.0f }
-    };
-    vk::RenderingInfo ppRenderingInfo = {
-        .renderArea = {{0, 0}, wm.swapChainExtent},
-        .layerCount = 1,
-        .colorAttachmentCount = 1,
-        .pColorAttachments = &ppColorInfo
-    };
-
-    if (vl.dynamicRenderingAvailable) {
-        ctx.cmd.beginRendering(ppRenderingInfo);
-    } else {
-        // For non-dynamic rendering, use the same renderpass mechanism
-        // (simplified: just use dynamic rendering path here)
-        ctx.cmd.beginRendering(ppRenderingInfo);
-    }
-
-    ctx.cmd.bindPipeline(vk::PipelineBindPoint::eGraphics, postProcessPipeline);
-    ctx.cmd.bindDescriptorSets(
-        vk::PipelineBindPoint::eGraphics, postProcessLayout,
-        0, perFrameDescriptorSets[ctx.frameID], nullptr
-    );
-    ctx.cmd.setViewport(0, vp);
-    ctx.cmd.setScissor(0, ppRenderingInfo.renderArea);
-    ctx.cmd.draw(3, 1, 0, 0);
-
-    if (vl.dynamicRenderingAvailable) {
-        ctx.cmd.endRendering();
-    } else {
-        ctx.cmd.endRendering();
-    }
-
-    // Layout transition back: intermediate image -> ColorAttachmentOptimal
-    vk::ImageMemoryBarrier2 barrierBack = {
-        .srcStageMask = vk::PipelineStageFlagBits2::eFragmentShader,
-        .srcAccessMask = vk::AccessFlagBits2::eShaderSampledRead,
-        .dstStageMask = vk::PipelineStageFlagBits2::eColorAttachmentOutput,
-        .dstAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite,
-        .oldLayout = vk::ImageLayout::eShaderReadOnlyOptimal,
-        .newLayout = vk::ImageLayout::eColorAttachmentOptimal,
-        .image = intermediateImage.image,
-        .subresourceRange = { vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1 }
-    };
-    vk::DependencyInfo depInfoBack = {
-        .imageMemoryBarrierCount = 1,
-        .pImageMemoryBarriers = &barrierBack
-    };
-    ctx.cmd.pipelineBarrier2(depInfoBack);
+    // LABTODO: layout transition back to ColorAttachment
 
     query.write(ctx.cmd, vk::PipelineStageFlagBits::eBottomOfPipe);
+
     query.endFrame();
 }
 
@@ -317,18 +215,16 @@ void Renderer::createPipelineLayout()
 
     perFrameDscSetBuilder
         .setMaximumSetCount(MAX_FRAMES_IN_FLIGHT)
-        .addBinding(0, vk::DescriptorType::eUniformBuffer,
+        .addBinding(0, vk::DescriptorType::eUniformBuffer, // perFrameUniformData
             vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment)
-        .addBinding(1, vk::DescriptorType::eUniformBuffer,
+        .addBinding(1, vk::DescriptorType::eUniformBuffer, // pointLightUniformData
             vk::ShaderStageFlagBits::eFragment)
-        .addBinding(2, vk::DescriptorType::eUniformBuffer,
-            vk::ShaderStageFlagBits::eFragment)
-        .addBinding(3, vk::DescriptorType::eCombinedImageSampler,
-            vk::ShaderStageFlagBits::eFragment)
+    // LABTODO: dir light descriptor binding
+    // LABTODO: post process render target (as read only texture)
         .createLayout();
 
     perObjectDscSetBuilder.setMaximumSetCount(MAX_FRAMES_IN_FLIGHT)
-        .addBinding(0, vk::DescriptorType::eUniformBufferDynamic,
+        .addBinding(0, vk::DescriptorType::eUniformBufferDynamic, // per object uniform
             vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment)
         .createLayout();
 
@@ -339,10 +235,6 @@ void Renderer::createPipelineLayout()
     pipelineLayout = theVulkanLayer.name(theVulkanLayer.createPipelineLayout(
         { perFrameDscSetBuilder.layout(), theAssetManager.materialSetLayout, perObjectDscSetBuilder.layout() }
     ), "Renderer_PipelineLayout");
-
-    postProcessLayout = theVulkanLayer.name(theVulkanLayer.createPipelineLayout(
-        { perFrameDscSetBuilder.layout() }
-    ), "PostProcess_PipelineLayout");
 }
 
 void Renderer::updateDescriptorSets()
@@ -352,26 +244,8 @@ void Renderer::updateDescriptorSets()
 
     perFrameDscSetBuilder.update(perFrameDescriptorSets)
         .writeBuffer(0, perFrameBuffers)
-        .writeBuffer(1, pointLightBuffers)
-        .writeBuffer(2, dirLightBuffers);
-
-    // Write the intermediate image as CombinedImageSampler at binding 3
-    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        vk::DescriptorImageInfo imgInfo = {
-            .sampler = intermediateSampler,
-            .imageView = intermediateImage.view,
-            .imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal
-        };
-        vk::WriteDescriptorSet write = {
-            .dstSet = perFrameDescriptorSets[i],
-            .dstBinding = 3,
-            .dstArrayElement = 0,
-            .descriptorCount = 1,
-            .descriptorType = vk::DescriptorType::eCombinedImageSampler,
-            .pImageInfo = &imgInfo
-        };
-        theVulkanLayer.device.updateDescriptorSets(write, nullptr);
-    }
+        .writeBuffer(1, pointLightBuffers);
+    // LABTODO: write dir light buffer into descriptor
 }
 
 void Renderer::createPipeline(const RendererDependency& dep, CachedRenderingData& cache)
@@ -405,13 +279,7 @@ void Renderer::createPipeline(const RendererDependency& dep, CachedRenderingData
             vertexInputBuilder.
                 addVertexAttribute(2, vk::Format::eR32G32Sfloat, dep.layout.infos.find(VertexDataElem::TextureCoordinate)->second.stride);
             cache.bindings[binding++] = VertexDataElem::TextureCoordinate;
-
-            // Normal mapping: add tangent attribute if available
-            if (dep.layout.infos.contains(VertexDataElem::Tangent)) {
-                vertexInputBuilder.
-                    addVertexAttribute(3, vk::Format::eR32G32B32A32Sfloat, dep.layout.infos.find(VertexDataElem::Tangent)->second.stride);
-                cache.bindings[binding++] = VertexDataElem::Tangent;
-            }
+            // LABTODO: also load tangents
         }
 
         auto vertexInputDesc = vertexInputBuilder.build();
@@ -468,39 +336,20 @@ void Renderer::createPipeline(const RendererDependency& dep, CachedRenderingData
 
 void Renderer::createImages()
 {
-    auto& wm = theWindowManager;
-
     depthImage = theVulkanLayer.name(theVulkanLayer.createImage(
-        wm.swapChainExtent.width, wm.swapChainExtent.height, 1,
+        theWindowManager.swapChainExtent.width, theWindowManager.swapChainExtent.height, 1,
         vk::SampleCountFlagBits::e1,
         theVulkanLayer.findDepthFormat(), vk::ImageLayout::eDepthStencilAttachmentOptimal,
         vk::ImageAspectFlagBits::eDepth | vk::ImageAspectFlagBits::eStencil,
         vk::ImageUsageFlagBits::eDepthStencilAttachment
     ), "Renderer_DepthImage");
 
-    intermediateImage = theVulkanLayer.name(theVulkanLayer.createImage(
-        wm.swapChainExtent.width, wm.swapChainExtent.height, 1,
-        vk::SampleCountFlagBits::e1,
-        wm.swapChainImageFormat, vk::ImageLayout::eColorAttachmentOptimal,
-        vk::ImageAspectFlagBits::eColor,
-        vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled
-    ), "Renderer_IntermediateImage");
-
-    if (!intermediateSampler) {
-        vk::SamplerCreateInfo samplerInfo = {
-            .magFilter = vk::Filter::eLinear,
-            .minFilter = vk::Filter::eLinear,
-            .mipmapMode = vk::SamplerMipmapMode::eLinear,
-            .addressModeU = vk::SamplerAddressMode::eClampToEdge,
-            .addressModeV = vk::SamplerAddressMode::eClampToEdge,
-            .addressModeW = vk::SamplerAddressMode::eClampToEdge
-        };
-        intermediateSampler = theVulkanLayer.device.createSampler(samplerInfo);
-    }
+    // LABTODO: create intermediate texture for post processing and a sampler
 }
 
 void Renderer::createResources()
 {
+    // Calculate required alignment based on minimum device offset alignment
     vk::DeviceSize minUbAlignment = theVulkanLayer.physicalDeviceProperties.limits.minUniformBufferOffsetAlignment;
     dynamicAlignment = getAlignedSize(sizeof(PerObjectUniformData), minUbAlignment);
     size_t perObjectUbosBufferSize = MAX_OBJECT_NUM * dynamicAlignment;
@@ -513,7 +362,6 @@ void Renderer::createResources()
             vma::AllocationCreateFlagBits::eHostAccessSequentialWriteBit | vma::AllocationCreateFlagBits::eCreateMappedBit);
         pointLightBuffers[i] = theVulkanLayer.createBuffer(sizeof(PointLightsUBO), vk::BufferUsageFlagBits::eUniformBuffer,
             vma::AllocationCreateFlagBits::eHostAccessSequentialWriteBit | vma::AllocationCreateFlagBits::eCreateMappedBit);
-        dirLightBuffers[i] = theVulkanLayer.createBuffer(sizeof(DirLightsUBO), vk::BufferUsageFlagBits::eUniformBuffer,
-            vma::AllocationCreateFlagBits::eHostAccessSequentialWriteBit | vma::AllocationCreateFlagBits::eCreateMappedBit);
+        //LABTODO: create dir light buffers
     }
 }

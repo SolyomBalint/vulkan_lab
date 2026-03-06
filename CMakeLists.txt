@@ -4,6 +4,7 @@ project(vulkanIntro) # define project
 set(CMAKE_CXX_STANDARD 23) # c++ standard version
 
 add_compile_definitions(USE_EZPZLOGGER) # enable logging (see thirdparty/EZPZLogger/logger.hpp)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # list all source files in groups
 # put additional source files into their relevant group
@@ -59,7 +60,7 @@ list(APPEND MAIN_FILES
     src/gui/imgui_ext.cpp
     src/utility/mmath.cpp)
 
-# create executable 
+# create executable
 add_executable(${PROJECT_NAME} # name of the executable
     ${MAIN_FILES} ${RENDERER_FILES} # source files (insert from previously defined variable)
     ${ASSET_MANAGMENT_FILES} ${RESOURCE_FILES} ${THIRDPARTY_FILES})
@@ -89,7 +90,7 @@ endif()
 if (WIN32)
     if (MSVC)
         target_link_options(${PROJECT_NAME} PRIVATE /INCREMENTAL /SAFESEH:NO) # enable incremental linking
-        target_link_directories(${PROJECT_NAME} PRIVATE thirdparty/glfw/lib-vc2022) # set directory where the linker will search for libraries   
+        target_link_directories(${PROJECT_NAME} PRIVATE thirdparty/glfw/lib-vc2022) # set directory where the linker will search for libraries
     else()
         target_link_directories(${PROJECT_NAME} PRIVATE thirdparty/glfw/lib-mingw-w64)
     endif()

@@ -8,7 +8,7 @@ class GameScene {
 public:
     std::vector<GameObject> gameObjects;
     std::vector<PointLight> pointLights;
-    std::vector<DirectionalLight> dirLights;
+    // LABTODO: dirlights
     AmbientLight ambientLight;
 
     void updateGui();
